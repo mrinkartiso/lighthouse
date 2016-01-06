@@ -13,6 +13,7 @@
 using System.Configuration;
 using System.Linq;
 using Akka.Actor;
+using Akka.Cluster;
 using Akka.Configuration;
 using Akka.Configuration.Hocon;
 using ConfigurationException = Akka.Configuration.ConfigurationException;
@@ -42,7 +43,7 @@ namespace Lighthouse
                         "127.0.0.1"; //localhost as a final default
             int port = specifiedPort ?? remoteConfig.GetInt("helios.tcp.port");
 
-            if(port == 0) throw new ConfigurationException("Need to specify an explicit port for Lighthouse. Found an undefined port or a port value of 0 in App.config.");
+            if (port == 0) throw new ConfigurationException("Need to specify an explicit port for Lighthouse. Found an undefined port or a port value of 0 in App.config.");
 
             var selfAddress = string.Format("akka.tcp://{0}@{1}:{2}", systemName, ipAddress, port);
             var seeds = clusterConfig.GetStringList("akka.cluster.seed-nodes");
@@ -60,7 +61,12 @@ akka.remote.helios.tcp.port = {1}", ipAddress, port))
                 .WithFallback(ConfigurationFactory.ParseString(injectedClusterConfigString))
                 .WithFallback(clusterConfig);
 
-            return ActorSystem.Create(systemName, finalConfig);
+            var actorSystem = ActorSystem.Create(systemName, finalConfig);
+            var memberLoggingActor = actorSystem.ActorOf(Props.Create<MemberLoggingActor>(), "memberlogging");
+            var cluster = Cluster.Get(actorSystem);
+            cluster.Subscribe(memberLoggingActor, new[] { typeof(ClusterEvent.MemberStatusChange) });
+
+            return actorSystem;
         }
     }
 }
